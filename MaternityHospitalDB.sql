@@ -2,6 +2,17 @@ CREATE DATABASE MaternityHospitalDB;
 
 USE MaternityHospitalDB;
 
+-- Создаем таблицу докторов.
+CREATE TABLE Doctors
+(
+	id INT NOT NULL AUTO_INCREMENT,
+    docName VARCHAR(20) NOT NULL,
+    father VARCHAR(20) NOT NULL,
+    secname VARCHAR(20) NOT NULL,
+    qualification ENUM('Врач I категории', 'Врач II категории') NOT NULL,
+		PRIMARY KEY (id)
+);
+
 -- Создаем таблицу мам.
 CREATE TABLE Mothers
 (
@@ -10,7 +21,9 @@ CREATE TABLE Mothers
     father VARCHAR(20) NOT NULL DEFAULT '',
     secname VARCHAR(20) NOT NULL,
     birthday DATE NOT NULL,
-		PRIMARY KEY (id)
+    doctorId INT NOT NULL,
+		PRIMARY KEY (id),
+        FOREIGN KEY (doctorId) REFERENCES Doctors(id)
 );
 
 -- Создаем таблицу детей.
@@ -24,6 +37,52 @@ CREATE TABLE Babies
 		PRIMARY KEY (id),
         FOREIGN KEY (motherId) REFERENCES Mothers(id)
 );
+
+-- Таблица медикаментов, назначаемых больным.
+CREATE TABLE Medicament
+(
+	id INT NOT NULL AUTO_INCREMENT,
+    medName VARCHAR(20),
+		PRIMARY KEY (id)
+);
+
+-- Отношение многие ко многим - мамы-медикаменты.
+CREATE TABLE MedsForMoms
+(
+	id INT NOT NULL AUTO_INCREMENT,
+    motherId INT NOT NULL,
+    medId INT NOT NULL,
+		PRIMARY KEY (id),
+        FOREIGN KEY (motherId) REFERENCES Mothers(id),
+        FOREIGN KEY (medId) REFERENCES Medicament(id)
+);
+
+-- Заполняем таблицу медикаменты.
+INSERT INTO Medicament
+(medName)
+VALUES
+('Препарат 1'),
+('Препарат 2'),
+('Препарат 3'),
+('Препарат 4'),
+('Препарат 5');
+
+-- Заполняем таблицу medsForMoms.
+DELIMITER //
+CREATE PROCEDURE FillMedsForMoms()
+BEGIN
+	SET @iter = 1;
+	WHILE @iter <= 100 DO
+		SET @randMotherId = floor((SELECT COUNT(*) FROM Mothers) * RAND() + 1);
+        Set @randMedId = floor((SELECT COUNT(*) FROM Medicament) * RAND() + 1);
+		INSERT INTO MedsForMoms
+		(motherId, medId)
+		VALUES
+		(@randMotherId, @randMedId);
+        SET @iter = @iter + 1;
+    END WHILE;
+END; //
+-- DELIMITER;
 
 -- Получаем дату рождения мам.
 DELIMITER //
@@ -145,14 +204,36 @@ CREATE PROCEDURE FillMotherTable()
 BEGIN
 	SET @iter = 1;
     WHILE @iter <= 100 DO
+		SET @docId = @iter % 10 + 1;
 		INSERT INTO Mothers
-		(motherName, father, secname, birthday)
+		(motherName, father, secname, birthday, doctorId)
 		VALUES
 		(
 			GetWomanName(),
             GetMotherFather(),
             GetMotherSecname(),
-            GetMotherBirthday()
+            GetMotherBirthday(),
+            @docId
+        );
+        SET @iter = @iter + 1;
+	END WHILE;
+END;
+
+-- Заполняем таблицу докторов.
+DELIMITER \\
+CREATE PROCEDURE FillDocTable()
+BEGIN
+	SET @iter = 1;
+    WHILE @iter <= 10 DO
+		SET @qualif = @iter % 2 + 1;
+		INSERT INTO Doctors
+		(docName, father, secname, qualification)
+		VALUES
+		(
+			GetWomanName(),
+            GetMotherFather(),
+            GetMotherSecname(),
+            @qualif
         );
         SET @iter = @iter + 1;
 	END WHILE;
@@ -187,8 +268,10 @@ BEGIN
 	END WHILE;
 END;
 
+CALL FillDocTable();
 CALL FillMotherTable();
 CALL FillBabyTable();
+CALL FillMedsForMoms();
 
 -- Женщины и количество рожденных у них детей. Если 0 детей, то женщину не выводит.
 SELECT CONCAT(secname, ' ', SUBSTRING(motherName, 1, 1), '.', SUBSTRING(father, 1, 1), '.') AS 'Ф.И.О.', 
@@ -197,11 +280,25 @@ FROM Mothers
 JOIN Babies ON motherId = Mothers.id 
 GROUP BY motherId;
 
+-- Аналог предыдущего запроса с применением оконной функции (строки задвоены как и в примерах в интернете)
+SELECT CONCAT(secname, ' ', SUBSTRING(motherName, 1, 1), '.', SUBSTRING(father, 1, 1), '.') AS 'Ф.И.О.', 
+	   COUNT(*) over(partition by motherId) AS 'Кол-во детей'
+FROM Mothers
+JOIN Babies ON motherId = Mothers.id;
+
 -- Имя последнего рожденного ребенка.
 SELECT babyName
 FROM Babies
 ORDER BY birthday DESC
 LIMIT 1;
+
+-- Список женщин с именем последнего рожденного ребенка.
+SELECT CONCAT(secname, ' ', SUBSTRING(motherName, 1, 1), '.', SUBSTRING(father, 1, 1), '.') AS 'Ф.И.О.', 
+	   (SELECT babyName FROM Babies WHERE motherid = Mom.id ORDER BY Babies.birthday DESC Limit 1) AS 'Имя ребенка',
+       (SELECT birthday FROM Babies WHERE motherid = Mom.id ORDER BY Babies.birthday DESC Limit 1) AS 'Дата рож-я ребенка'
+FROM Mothers as Mom
+JOIN Babies ON motherId = Mom.id
+GROUP BY Mom.id;
 
 -- Список женщин с именем последнего рожденного ребенка.
 SELECT CONCAT(secname, ' ', SUBSTRING(motherName, 1, 1), '.', SUBSTRING(father, 1, 1), '.') AS 'Ф.И.О.', 
